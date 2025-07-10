@@ -1,4 +1,9 @@
 <?php
+// DEBUG - adicione isso temporariamente no topo após os requires
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 /**
  * Dashboard - Sistema de Inventário D&D 3.5
  */

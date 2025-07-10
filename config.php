@@ -76,4 +76,11 @@ function logout() {
     header("Location: login.php");
     exit();
 }
+
+/**
+ * Verificar se o usuário é administrador (sem redirecionar)
+ */
+function isAdmin() {
+    return isset($_SESSION['is_admin']) && $_SESSION['is_admin'] === true;
+}
 ?>

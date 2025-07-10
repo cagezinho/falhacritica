@@ -441,17 +441,6 @@ try {
     $historico_xp = [];
 }
 
-// Buscar todos os personagens para o dropdown (apenas para admins)
-$todos_personagens = [];
-if (isAdmin()) {
-    try {
-        $stmt = $conn->prepare("SELECT id, nome_personagem, nivel_atual FROM personagens ORDER BY nome_personagem");
-        $stmt->execute();
-        $todos_personagens = $stmt->fetchAll();
-    } catch (PDOException $e) {
-        $todos_personagens = [];
-    }
-}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">

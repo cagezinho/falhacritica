@@ -165,56 +165,6 @@ try {
                 </div>
             </div>
         </div>
-        <!-- Sistema de XP -->
-        <div class="card card-custom mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-star me-2"></i>
-                    Sistema de Experiência
-                </h5>
-            </div>
-            <div class="card-body">
-                <!-- Informações de XP do Personagem -->
-                <div class="row mb-4">
-                    <div class="col-md-3">
-                        <div class="card bg-primary text-white">
-                            <div class="card-body text-center">
-                                <i class="fas fa-level-up-alt fa-2x mb-2"></i>
-                                <h6>Nível Atual</h6>
-                                <h3><?php echo $nivel_atual; ?></h3>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card bg-success text-white">
-                            <div class="card-body text-center">
-                                <i class="fas fa-star fa-2x mb-2"></i>
-                                <h6>XP Atual</h6>
-                                <h4><?php echo number_format($xp_atual); ?></h4>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card bg-info text-white">
-                            <div class="card-body">
-                                <h6>Progresso para Nível <?php echo $nivel_atual + 1; ?></h6>
-                                <?php if ($progresso_xp['nivel_maximo']): ?>
-                                    <h5><i class="fas fa-crown me-2"></i>Nível Máximo Atingido!</h5>
-                                <?php else: ?>
-                                    <div class="progress mb-2" style="height: 20px;">
-                                        <div class="progress-bar bg-warning" role="progressbar" 
-                                             style="width: <?php echo $progresso_xp['porcentagem']; ?>%">
-                                            <?php echo $progresso_xp['porcentagem']; ?>%
-                                        </div>
-                                    </div>
-                                    <small>
-                                        Faltam <?php echo number_format($progresso_xp['xp_para_proximo']); ?> XP para o próximo nível
-                                    </small>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
         <!-- Lista de Personagens e Inventários -->
         <div class="row">

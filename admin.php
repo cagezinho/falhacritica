@@ -165,7 +165,170 @@ try {
                 </div>
             </div>
         </div>
+        <!-- Sistema de XP -->
+        <div class="card card-custom mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-star me-2"></i>
+                    Sistema de Experiência
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Informações de XP do Personagem -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body text-center">
+                                <i class="fas fa-level-up-alt fa-2x mb-2"></i>
+                                <h6>Nível Atual</h6>
+                                <h3><?php echo $nivel_atual; ?></h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body text-center">
+                                <i class="fas fa-star fa-2x mb-2"></i>
+                                <h6>XP Atual</h6>
+                                <h4><?php echo number_format($xp_atual); ?></h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card bg-info text-white">
+                            <div class="card-body">
+                                <h6>Progresso para Nível <?php echo $nivel_atual + 1; ?></h6>
+                                <?php if ($progresso_xp['nivel_maximo']): ?>
+                                    <h5><i class="fas fa-crown me-2"></i>Nível Máximo Atingido!</h5>
+                                <?php else: ?>
+                                    <div class="progress mb-2" style="height: 20px;">
+                                        <div class="progress-bar bg-warning" role="progressbar" 
+                                             style="width: <?php echo $progresso_xp['porcentagem']; ?>%">
+                                            <?php echo $progresso_xp['porcentagem']; ?>%
+                                        </div>
+                                    </div>
+                                    <small>
+                                        Faltam <?php echo number_format($progresso_xp['xp_para_proximo']); ?> XP para o próximo nível
+                                    </small>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
+                <!-- Formulário para Adicionar XP (apenas para admins) -->
+                <?php if (isAdmin()): ?>
+                    <div class="card mb-4" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <button class="btn btn-link text-decoration-none p-0 w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdicionarXP" aria-expanded="false">
+                                    <i class="fas fa-plus me-2"></i>
+                                    Adicionar XP (Apenas Administradores)
+                                    <i class="fas fa-chevron-down ms-2 float-end"></i>
+                                </button>
+                            </h6>
+                        </div>
+                        <div class="collapse" id="collapseAdicionarXP">
+                            <div class="card-body">
+                                <form method="POST" action="">
+                                    <input type="hidden" name="action" value="adicionar_xp">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label for="personagem_alvo" class="form-label">
+                                                <i class="fas fa-user me-2"></i>Personagem
+                                            </label>
+                                            <select class="form-control" id="personagem_alvo" name="personagem_alvo" required>
+                                                <option value="">Selecione um personagem</option>
+                                                <?php foreach ($todos_personagens as $p): ?>
+                                                    <option value="<?php echo $p['id']; ?>" <?php echo $p['id'] == $_SESSION['personagem_id'] ? 'selected' : ''; ?>>
+                                                        <?php echo htmlspecialchars($p['nome_personagem']); ?> (Nível <?php echo $p['nivel_atual']; ?>)
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="xp_ganho" class="form-label">
+                                                <i class="fas fa-star me-2"></i>XP a Adicionar
+                                            </label>
+                                            <input type="number" class="form-control" id="xp_ganho" name="xp_ganho" 
+                                                   min="1" max="100000" required placeholder="Ex: 1000">
+                                        </div>
+                                        <div class="col-12">
+                                            <label for="motivo_xp" class="form-label">
+                                                <i class="fas fa-comment me-2"></i>Motivo/Descrição
+                                            </label>
+                                            <input type="text" class="form-control" id="motivo_xp" name="motivo_xp" 
+                                                   placeholder="Ex: Derrotar o Dragão Vermelho" maxlength="255">
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="d-grid">
+                                                <button type="submit" class="btn btn-warning">
+                                                    <i class="fas fa-plus me-2"></i>
+                                                    Adicionar XP
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Histórico de XP -->
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-history me-2"></i>
+                            Histórico de XP
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <?php if (empty($historico_xp)): ?>
+                            <div class="text-center py-3">
+                                <i class="fas fa-star fa-2x text-muted mb-2"></i>
+                                <p class="text-muted">Nenhum XP ganho ainda</p>
+                            </div>
+                        <?php else: ?>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Data</th>
+                                            <th>XP Ganho</th>
+                                            <th>Nível</th>
+                                            <th>Motivo</th>
+                                            <th>Adicionado por</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($historico_xp as $entrada): ?>
+                                            <tr>
+                                                <td><?php echo date('d/m/Y H:i', strtotime($entrada['data_ganho'])); ?></td>
+                                                <td>
+                                                    <span class="badge bg-success">+<?php echo number_format($entrada['xp_ganho']); ?></span>
+                                                </td>
+                                                <td>
+                                                    <?php if ($entrada['nivel_novo'] > $entrada['nivel_anterior']): ?>
+                                                        <span class="badge bg-warning">
+                                                            <?php echo $entrada['nivel_anterior']; ?> → <?php echo $entrada['nivel_novo']; ?>
+                                                        </span>
+                                                    <?php else: ?>
+                                                        <?php echo $entrada['nivel_novo']; ?>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td><?php echo htmlspecialchars($entrada['motivo'] ?: 'Sem descrição'); ?></td>
+                                                <td><?php echo htmlspecialchars($entrada['adicionado_por_nome']); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
         <!-- Lista de Personagens e Inventários -->
         <div class="row">
             <div class="col-12">

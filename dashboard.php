@@ -420,26 +420,6 @@ try {
     $criaturas = [];
 }
 
-try {
-    $stmt = $conn->prepare("SELECT xp_atual, nivel_atual FROM personagens WHERE id = :id");
-    $stmt->bindParam(':id', $_SESSION['personagem_id']);
-    $stmt->execute();
-    $dados_xp = $stmt->fetch();
-    
-    $xp_atual = $dados_xp['xp_atual'] ?? 0;
-    $nivel_atual = $dados_xp['nivel_atual'] ?? 1;
-    
-    // Calcular progresso de XP
-    $progresso_xp = getProgressoXP($xp_atual, $nivel_atual);
-    
-    // Buscar histórico de XP
-    $historico_xp = getHistoricoXP($conn, $_SESSION['personagem_id'], 10);
-} catch (PDOException $e) {
-    $xp_atual = 0;
-    $nivel_atual = 1;
-    $progresso_xp = getProgressoXP(0, 1);
-    $historico_xp = [];
-}
 
 ?>
 <!DOCTYPE html>

@@ -1126,11 +1126,11 @@ try {
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
+                
             </div>
+            
         </div>
-    </div>
-
-     <!-- Sistema de XP -->
+        <!-- Sistema de XP -->
         <div class="card card-custom mb-4">
             <div class="card-header">
                 <h5 class="mb-0">
@@ -1294,6 +1294,9 @@ try {
                 </div>
             </div>
         </div>
+    </div>
+
+     
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     

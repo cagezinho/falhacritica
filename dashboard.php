@@ -192,37 +192,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
 
             // Adicionar este case no switch de ações:
-        case 'adicionar_xp':
-            // Apenas admins podem adicionar XP
-            if (!isAdmin()) {
-                $_SESSION['error'] = 'Acesso negado.';
-                break;
-            }
-            
+       case 'adicionar_xp':
+    // Apenas admins podem adicionar XP
+    if (!isAdmin()) {
+        $_SESSION['error'] = 'Acesso negado.';
+        break;
+    }
+    
+    $tipo_distribuicao = $_POST['tipo_distribuicao'] ?? '';
+    $xp_total = intval($_POST['xp_total'] ?? 0);
+    $motivo_xp = sanitizeInput($_POST['motivo_xp'] ?? '');
+    
+    if ($xp_total <= 0) {
+        $_SESSION['error'] = 'XP deve ser maior que zero.';
+    } elseif ($xp_total > 500000) {
+        $_SESSION['error'] = 'XP não pode ser maior que 500.000.';
+    } else {
+        if ($tipo_distribuicao === 'individual') {
+            // XP individual (como era antes)
             $personagem_alvo = intval($_POST['personagem_alvo'] ?? 0);
-            $xp_ganho = intval($_POST['xp_ganho'] ?? 0);
-            $motivo_xp = sanitizeInput($_POST['motivo_xp'] ?? '');
             
             if ($personagem_alvo <= 0) {
                 $_SESSION['error'] = 'Personagem é obrigatório.';
-            } elseif ($xp_ganho <= 0) {
-                $_SESSION['error'] = 'XP deve ser maior que zero.';
-            } elseif ($xp_ganho > 100000) {
-                $_SESSION['error'] = 'XP não pode ser maior que 100.000.';
-            } else {
-                $resultado = adicionarXP($conn, $personagem_alvo, $xp_ganho, $motivo_xp, $_SESSION['personagem_id']);
-                
-                if ($resultado && $resultado['sucesso']) {
-                    if ($resultado['subiu_nivel']) {
-                        $_SESSION['success'] = "XP adicionado com sucesso! O personagem subiu do nível {$resultado['nivel_anterior']} para {$resultado['nivel_novo']}!";
-                    } else {
-                        $_SESSION['success'] = "XP adicionado com sucesso! +" . number_format($xp_ganho) . " XP";
-                    }
+                break;
+            }
+            
+            $resultado = adicionarXP($conn, $personagem_alvo, $xp_total, $motivo_xp, $_SESSION['personagem_id']);
+            
+            if ($resultado && $resultado['sucesso']) {
+                if ($resultado['subiu_nivel']) {
+                    $_SESSION['success'] = "XP adicionado com sucesso! O personagem subiu do nível {$resultado['nivel_anterior']} para {$resultado['nivel_novo']}!";
                 } else {
-                    $_SESSION['error'] = 'Erro ao adicionar XP.';
+                    $_SESSION['success'] = "XP adicionado com sucesso! +" . number_format($xp_total) . " XP";
+                }
+            } else {
+                $_SESSION['error'] = 'Erro ao adicionar XP.';
+            }
+            
+        } elseif ($tipo_distribuicao === 'grupo') {
+            // XP em grupo (nova funcionalidade)
+            $personagens_selecionados = $_POST['personagens_grupo'] ?? [];
+            
+            if (empty($personagens_selecionados)) {
+                $_SESSION['error'] = 'Selecione pelo menos um personagem para distribuir XP.';
+                break;
+            }
+            
+            $quantidade_personagens = count($personagens_selecionados);
+            $xp_por_personagem = floor($xp_total / $quantidade_personagens);
+            
+            if ($xp_por_personagem <= 0) {
+                $_SESSION['error'] = 'XP por personagem deve ser maior que zero.';
+                break;
+            }
+            
+            $sucessos = 0;
+            $personagens_uparam = [];
+            
+            foreach ($personagens_selecionados as $personagem_id) {
+                $personagem_id = intval($personagem_id);
+                if ($personagem_id > 0) {
+                    $resultado = adicionarXP($conn, $personagem_id, $xp_por_personagem, $motivo_xp, $_SESSION['personagem_id']);
+                    
+                    if ($resultado && $resultado['sucesso']) {
+                        $sucessos++;
+                        if ($resultado['subiu_nivel']) {
+                            // Buscar nome do personagem
+                            $stmt = $conn->prepare("SELECT nome_personagem FROM personagens WHERE id = :id");
+                            $stmt->bindParam(':id', $personagem_id);
+                            $stmt->execute();
+                            $nome = $stmt->fetchColumn();
+                            
+                            $personagens_uparam[] = $nome . " (nível {$resultado['nivel_anterior']} → {$resultado['nivel_novo']})";
+                        }
+                    }
                 }
             }
-            break;
+            
+            if ($sucessos > 0) {
+                $mensagem = "XP distribuído com sucesso! {$sucessos} personagem(s) receberam " . number_format($xp_por_personagem) . " XP cada.";
+                
+                if (!empty($personagens_uparam)) {
+                    $mensagem .= "\n\n🎉 Personagens que subiram de nível:\n" . implode("\n", $personagens_uparam);
+                }
+                
+                $_SESSION['success'] = $mensagem;
+            } else {
+                $_SESSION['error'] = 'Erro ao distribuir XP.';
+            }
+        } else {
+            $_SESSION['error'] = 'Tipo de distribuição inválido.';
+        }
+    }
+    break;
             
         case 'transferir':
             $item_id = intval($_POST['item_id'] ?? 0);
@@ -1222,62 +1284,136 @@ if (isAdmin()) {
 
                 <!-- Formulário para Adicionar XP (apenas para admins) -->
                 <?php if (isAdmin()): ?>
-                    <div class="card mb-4" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
-                        <div class="card-header">
-                            <h6 class="mb-0">
-                                <button class="btn btn-link text-decoration-none p-0 w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdicionarXP" aria-expanded="false">
-                                    <i class="fas fa-plus me-2"></i>
-                                    Adicionar XP (Apenas Administradores)
-                                    <i class="fas fa-chevron-down ms-2 float-end"></i>
-                                </button>
-                            </h6>
-                        </div>
-                        <div class="collapse" id="collapseAdicionarXP">
-                            <div class="card-body">
-                                <form method="POST" action="">
-                                    <input type="hidden" name="action" value="adicionar_xp">
-                                    <div class="row g-3">
-                                        <div class="col-md-6">
-                                            <label for="personagem_alvo" class="form-label">
-                                                <i class="fas fa-user me-2"></i>Personagem
-                                            </label>
-                                            <select class="form-control" id="personagem_alvo" name="personagem_alvo" required>
-                                                <option value="">Selecione um personagem</option>
-                                                <?php foreach ($todos_personagens as $p): ?>
-                                                    <option value="<?php echo $p['id']; ?>" <?php echo $p['id'] == $_SESSION['personagem_id'] ? 'selected' : ''; ?>>
-                                                        <?php echo htmlspecialchars($p['nome_personagem']); ?> (Nível <?php echo $p['nivel_atual']; ?>)
-                                                    </option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label for="xp_ganho" class="form-label">
-                                                <i class="fas fa-star me-2"></i>XP a Adicionar
-                                            </label>
-                                            <input type="number" class="form-control" id="xp_ganho" name="xp_ganho" 
-                                                   min="1" max="100000" required placeholder="Ex: 1000">
-                                        </div>
-                                        <div class="col-12">
-                                            <label for="motivo_xp" class="form-label">
-                                                <i class="fas fa-comment me-2"></i>Motivo/Descrição
-                                            </label>
-                                            <input type="text" class="form-control" id="motivo_xp" name="motivo_xp" 
-                                                   placeholder="Ex: Derrotar o Dragão Vermelho" maxlength="255">
-                                        </div>
-                                        <div class="col-12">
-                                            <div class="d-grid">
-                                                <button type="submit" class="btn btn-warning">
-                                                    <i class="fas fa-plus me-2"></i>
-                                                    Adicionar XP
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </form>
+    <div class="card mb-4" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
+        <div class="card-header">
+            <h6 class="mb-0">
+                <button class="btn btn-link text-decoration-none p-0 w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdicionarXP" aria-expanded="false">
+                    <i class="fas fa-plus me-2"></i>
+                    Adicionar XP (Apenas Administradores)
+                    <i class="fas fa-chevron-down ms-2 float-end"></i>
+                </button>
+            </h6>
+        </div>
+        <div class="collapse" id="collapseAdicionarXP">
+            <div class="card-body">
+                <form method="POST" action="" id="formXP">
+                    <input type="hidden" name="action" value="adicionar_xp">
+                    
+                    <!-- Tipo de Distribuição -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <label class="form-label">
+                                <i class="fas fa-users me-2"></i>Tipo de Distribuição
+                            </label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="tipo_distribuicao" id="individual" value="individual" checked>
+                                <label class="btn btn-outline-primary" for="individual">
+                                    <i class="fas fa-user me-2"></i>Individual
+                                </label>
+                                
+                                <input type="radio" class="btn-check" name="tipo_distribuicao" id="grupo" value="grupo">
+                                <label class="btn btn-outline-success" for="grupo">
+                                    <i class="fas fa-users me-2"></i>Grupo
+                                </label>
                             </div>
                         </div>
                     </div>
-                <?php endif; ?>
+
+                    <!-- XP Total -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="xp_total" class="form-label">
+                                <i class="fas fa-star me-2"></i><span id="labelXP">XP a Adicionar</span>
+                            </label>
+                            <input type="number" class="form-control" id="xp_total" name="xp_total" 
+                                   min="1" max="500000" required placeholder="Ex: 1000">
+                            <div class="form-text" id="xpHelp">XP que será adicionado</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="motivo_xp" class="form-label">
+                                <i class="fas fa-comment me-2"></i>Motivo/Descrição
+                            </label>
+                            <input type="text" class="form-control" id="motivo_xp" name="motivo_xp" 
+                                   placeholder="Ex: Derrotar o Dragão Vermelho" maxlength="255">
+                        </div>
+                    </div>
+                    
+                    <!-- Seleção Individual -->
+                    <div class="row mb-3" id="selecaoIndividual">
+                        <div class="col-12">
+                            <label for="personagem_alvo" class="form-label">
+                                <i class="fas fa-user me-2"></i>Personagem
+                            </label>
+                            <select class="form-control" id="personagem_alvo" name="personagem_alvo">
+                                <option value="">Selecione um personagem</option>
+                                <?php foreach ($todos_personagens as $p): ?>
+                                    <option value="<?php echo $p['id']; ?>" <?php echo $p['id'] == $_SESSION['personagem_id'] ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($p['nome_personagem']); ?> (Nível <?php echo $p['nivel_atual']; ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Seleção em Grupo -->
+                    <div class="row mb-3" id="selecaoGrupo" style="display: none;">
+                        <div class="col-12">
+                            <label class="form-label">
+                                <i class="fas fa-users me-2"></i>Personagens do Grupo
+                            </label>
+                            <div class="card">
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-2">
+                                            <button type="button" class="btn btn-outline-success btn-sm" id="selecionarTodos">
+                                                <i class="fas fa-check-double me-1"></i>Selecionar Todos
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm ms-1" id="limparSelecao">
+                                                <i class="fas fa-times me-1"></i>Limpar
+                                            </button>
+                                        </div>
+                                        <div class="col-md-6 mb-2">
+                                            <small class="text-muted">
+                                                <span id="contadorSelecionados">0</span> personagem(s) selecionado(s)
+                                                <br><span id="xpPorPersonagem">XP por personagem: 0</span>
+                                            </small>
+                                        </div>
+                                    </div>
+                                    
+                                    <?php foreach ($todos_personagens as $p): ?>
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input personagem-checkbox" type="checkbox" 
+                                                   name="personagens_grupo[]" value="<?php echo $p['id']; ?>" 
+                                                   id="personagem_<?php echo $p['id']; ?>">
+                                            <label class="form-check-label d-flex justify-content-between" for="personagem_<?php echo $p['id']; ?>">
+                                                <span>
+                                                    <i class="fas fa-user me-2"></i>
+                                                    <?php echo htmlspecialchars($p['nome_personagem']); ?>
+                                                </span>
+                                                <span class="badge bg-secondary">Nível <?php echo $p['nivel_atual']; ?></span>
+                                            </label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="fas fa-plus me-2"></i>
+                                    <span id="botaoTexto">Adicionar XP</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
 
                 <!-- Histórico de XP -->
                 <div class="card">
@@ -1496,5 +1632,80 @@ if (isAdmin()) {
             });
         }
     </script>
+    <script>
+// Script para o sistema de XP
+document.addEventListener('DOMContentLoaded', function() {
+    const radioIndividual = document.getElementById('individual');
+    const radioGrupo = document.getElementById('grupo');
+    const selecaoIndividual = document.getElementById('selecaoIndividual');
+    const selecaoGrupo = document.getElementById('selecaoGrupo');
+    const labelXP = document.getElementById('labelXP');
+    const xpHelp = document.getElementById('xpHelp');
+    const botaoTexto = document.getElementById('botaoTexto');
+    const xpTotalInput = document.getElementById('xp_total');
+    const checkboxes = document.querySelectorAll('.personagem-checkbox');
+    const contadorSelecionados = document.getElementById('contadorSelecionados');
+    const xpPorPersonagem = document.getElementById('xpPorPersonagem');
+    const selecionarTodos = document.getElementById('selecionarTodos');
+    const limparSelecao = document.getElementById('limparSelecao');
+    const personagemAlvo = document.getElementById('personagem_alvo');
+
+    function alterarModo() {
+        if (radioGrupo.checked) {
+            // Modo Grupo
+            selecaoIndividual.style.display = 'none';
+            selecaoGrupo.style.display = 'block';
+            labelXP.textContent = 'XP Total para Distribuir';
+            xpHelp.textContent = 'XP total que será dividido entre os personagens selecionados';
+            botaoTexto.textContent = 'Distribuir XP em Grupo';
+            personagemAlvo.removeAttribute('required');
+            atualizarContadores();
+        } else {
+            // Modo Individual
+            selecaoIndividual.style.display = 'block';
+            selecaoGrupo.style.display = 'none';
+            labelXP.textContent = 'XP a Adicionar';
+            xpHelp.textContent = 'XP que será adicionado ao personagem';
+            botaoTexto.textContent = 'Adicionar XP';
+            personagemAlvo.setAttribute('required', 'required');
+        }
+    }
+
+    function atualizarContadores() {
+        const selecionados = document.querySelectorAll('.personagem-checkbox:checked').length;
+        const xpTotal = parseInt(xpTotalInput.value) || 0;
+        const xpCada = selecionados > 0 ? Math.floor(xpTotal / selecionados) : 0;
+        
+        contadorSelecionados.textContent = selecionados;
+        xpPorPersonagem.textContent = `XP por personagem: ${xpCada.toLocaleString()}`;
+    }
+
+    // Event listeners
+    radioIndividual.addEventListener('change', alterarModo);
+    radioGrupo.addEventListener('change', alterarModo);
+    xpTotalInput.addEventListener('input', atualizarContadores);
+    
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', atualizarContadores);
+    });
+
+    selecionarTodos.addEventListener('click', function() {
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = true;
+        });
+        atualizarContadores();
+    });
+
+    limparSelecao.addEventListener('click', function() {
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        atualizarContadores();
+    });
+
+    // Inicializar
+    alterarModo();
+});
+</script>
 </body>
 </html>

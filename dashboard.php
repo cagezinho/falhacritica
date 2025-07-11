@@ -781,16 +781,14 @@ try {
     $historico_moedas = [];
 }
 
-// Buscar todos os personagens para o dropdown (apenas para admins)
+// Buscar todos os personagens para o dropdown (não apenas para admins)
 $todos_personagens = [];
-if (isAdmin()) {
-    try {
-        $stmt = $conn->prepare("SELECT id, nome_personagem, nivel_atual FROM personagens ORDER BY nome_personagem");
-        $stmt->execute();
-        $todos_personagens = $stmt->fetchAll();
-    } catch (PDOException $e) {
-        $todos_personagens = [];
-    }
+try {
+    $stmt = $conn->prepare("SELECT id, nome_personagem, nivel_atual FROM personagens ORDER BY nome_personagem");
+    $stmt->execute();
+    $todos_personagens = $stmt->fetchAll();
+} catch (PDOException $e) {
+    $todos_personagens = [];
 }
 
 
@@ -1218,11 +1216,19 @@ if (isAdmin()) {
                                                 <label for="personagem_destino<?php echo $item['id']; ?>" class="form-label">
                                                     <i class="fas fa-user me-2"></i>Personagem Destino
                                                 </label>
-                                                <input type="text" class="form-control form-control-lg" 
+                                                <select class="form-control form-control-lg" 
                                                        id="personagem_destino<?php echo $item['id']; ?>" 
                                                        name="personagem_destino" 
-                                                       required 
-                                                       placeholder="Nome exato do personagem">
+                                                       required>
+                                                    <option value="">Selecione um personagem</option>
+                                                    <?php foreach ($todos_personagens as $p): ?>
+                                                        <?php if ($p['id'] != $_SESSION['personagem_id']): ?>
+                                                            <option value="<?php echo htmlspecialchars($p['nome_personagem']); ?>">
+                                                                <?php echo htmlspecialchars($p['nome_personagem']); ?> (Nível <?php echo $p['nivel_atual']; ?>)
+                                                            </option>
+                                                        <?php endif; ?>
+                                                    <?php endforeach; ?>
+                                                </select>
                                             </div>
                                         </div>
                                         <div class="modal-footer">
@@ -1860,7 +1866,16 @@ if (isAdmin()) {
                                         
                                         <div class="mb-3">
                                             <label for="personagem_destino_moedas" class="form-label">Personagem Destino</label>
-                                            <input type="text" class="form-control" id="personagem_destino_moedas" name="personagem_destino" required placeholder="Nome exato do personagem">
+                                            <select class="form-control" id="personagem_destino_moedas" name="personagem_destino" required>
+                                                <option value="">Selecione um personagem</option>
+                                                <?php foreach ($todos_personagens as $p): ?>
+                                                    <?php if ($p['id'] != $_SESSION['personagem_id']): ?>
+                                                        <option value="<?php echo htmlspecialchars($p['nome_personagem']); ?>">
+                                                            <?php echo htmlspecialchars($p['nome_personagem']); ?> (Nível <?php echo $p['nivel_atual']; ?>)
+                                                        </option>
+                                                    <?php endif; ?>
+                                                <?php endforeach; ?>
+                                            </select>
                                         </div>
                                         
                                         <div class="mb-3">

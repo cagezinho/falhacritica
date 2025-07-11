@@ -20,7 +20,8 @@ $admin_personagens = [
 function isAdmin() {
     global $admin_personagens;
     
-    if (!isLoggedIn()) {
+    // Verificar se está logado (sem usar isLoggedIn())
+    if (!isset($_SESSION['personagem_id']) || !isset($_SESSION['nome_personagem'])) {
         return false;
     }
     

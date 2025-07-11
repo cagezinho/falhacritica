@@ -1810,25 +1810,6 @@ try {
                         </div>
                     </div>
                 </div>
-                
-                <!-- Valor Total -->
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <div class="card bg-dark text-white">
-                            <div class="card-body text-center">
-                                <i class="fas fa-calculator fa-2x mb-2"></i>
-                                <h6>Valor Total (em moedas de cobre)</h6>
-                                <h3><?php echo number_format($valor_total_cobre); ?> MC</h3>
-                                <small class="text-muted">
-                                    Equivale a: <?php echo number_format($valor_total_cobre / 1000, 2); ?> Platina | 
-                                    <?php echo number_format($valor_total_cobre / 100, 2); ?> Ouro | 
-                                    <?php echo number_format($valor_total_cobre / 10, 1); ?> Prata
-                                </small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Ações com Moedas -->
                 <div class="row">
                     <!-- Transferir Moedas -->

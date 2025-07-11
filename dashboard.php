@@ -285,6 +285,236 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     break;
+    case 'ajustar_moedas':
+    if (!isAdmin()) {
+        $_SESSION['error'] = 'Acesso negado.';
+        break;
+    }
+    
+    $personagem_alvo = intval($_POST['personagem_alvo'] ?? 0);
+    $tipo_moeda = $_POST['tipo_moeda'] ?? '';
+    $quantidade = intval($_POST['quantidade'] ?? 0);
+    $operacao = $_POST['operacao'] ?? '';
+    $motivo = sanitizeInput($_POST['motivo'] ?? '');
+    
+    if ($personagem_alvo <= 0) {
+        $_SESSION['error'] = 'Personagem é obrigatório.';
+    } elseif (!in_array($tipo_moeda, ['cobre', 'prata', 'ouro', 'platina'])) {
+        $_SESSION['error'] = 'Tipo de moeda inválido.';
+    } elseif ($quantidade <= 0) {
+        $_SESSION['error'] = 'Quantidade deve ser maior que zero.';
+    } elseif (!in_array($operacao, ['adicionar', 'remover'])) {
+        $_SESSION['error'] = 'Operação inválida.';
+    } else {
+        try {
+            $coluna_moeda = "moedas_" . $tipo_moeda;
+            
+            // Buscar quantidade atual
+            $stmt = $conn->prepare("SELECT $coluna_moeda, nome_personagem FROM personagens WHERE id = :id");
+            $stmt->bindParam(':id', $personagem_alvo);
+            $stmt->execute();
+            $personagem = $stmt->fetch();
+            
+            if ($personagem) {
+                $quantidade_atual = $personagem[$coluna_moeda];
+                
+                if ($operacao === 'adicionar') {
+                    $nova_quantidade = $quantidade_atual + $quantidade;
+                } else { // remover
+                    $nova_quantidade = $quantidade_atual - $quantidade;
+                    if ($nova_quantidade < 0) {
+                        $_SESSION['error'] = 'Não é possível remover mais moedas do que o personagem possui.';
+                        break;
+                    }
+                }
+                
+                // Atualizar moedas
+                $stmt = $conn->prepare("UPDATE personagens SET $coluna_moeda = :nova_quantidade WHERE id = :id");
+                $stmt->bindParam(':nova_quantidade', $nova_quantidade);
+                $stmt->bindParam(':id', $personagem_alvo);
+                
+                if ($stmt->execute()) {
+                    // Registrar movimentação
+                    $stmt = $conn->prepare("INSERT INTO movimentacoes_moedas (personagem_id, tipo_moeda, quantidade_anterior, quantidade_nova, quantidade_alterada, operacao, motivo, alterado_por) VALUES (:personagem_id, :tipo_moeda, :quantidade_anterior, :quantidade_nova, :quantidade_alterada, :operacao, :motivo, :alterado_por)");
+                    $stmt->bindParam(':personagem_id', $personagem_alvo);
+                    $stmt->bindParam(':tipo_moeda', $tipo_moeda);
+                    $stmt->bindParam(':quantidade_anterior', $quantidade_atual);
+                    $stmt->bindParam(':quantidade_nova', $nova_quantidade);
+                    $stmt->bindParam(':quantidade_alterada', $quantidade);
+                    $stmt->bindParam(':operacao', $operacao);
+                    $stmt->bindParam(':motivo', $motivo);
+                    $stmt->bindParam(':alterado_por', $_SESSION['personagem_id']);
+                    $stmt->execute();
+                    
+                    $operacao_texto = $operacao === 'adicionar' ? 'adicionadas' : 'removidas';
+                    $_SESSION['success'] = $quantidade . " moedas de " . $tipo_moeda . " {$operacao_texto} para " . $personagem['nome_personagem'] . "!";
+                } else {
+                    $_SESSION['error'] = 'Erro ao ajustar moedas.';
+                }
+            } else {
+                $_SESSION['error'] = 'Personagem não encontrado.';
+            }
+        } catch (PDOException $e) {
+            $_SESSION['error'] = 'Erro no sistema. Tente novamente.';
+        }
+    }
+    break;
+
+    case 'transferir_moedas':
+    $personagem_destino_nome = sanitizeInput($_POST['personagem_destino'] ?? '');
+    $tipo_moeda = $_POST['tipo_moeda'] ?? '';
+    $quantidade = intval($_POST['quantidade'] ?? 0);
+    $motivo = sanitizeInput($_POST['motivo'] ?? '');
+    
+    if (empty($personagem_destino_nome)) {
+        $_SESSION['error'] = 'Personagem destino é obrigatório.';
+    } elseif (!in_array($tipo_moeda, ['cobre', 'prata', 'ouro', 'platina'])) {
+        $_SESSION['error'] = 'Tipo de moeda inválido.';
+    } elseif ($quantidade <= 0) {
+        $_SESSION['error'] = 'Quantidade deve ser maior que zero.';
+    } else {
+        try {
+            // Verificar se o personagem destino existe
+            $stmt = $conn->prepare("SELECT id, nome_personagem FROM personagens WHERE nome_personagem = :nome");
+            $stmt->bindParam(':nome', $personagem_destino_nome);
+            $stmt->execute();
+            $destino = $stmt->fetch();
+            
+            if (!$destino) {
+                $_SESSION['error'] = 'Personagem destino não encontrado.';
+            } elseif ($destino['id'] == $_SESSION['personagem_id']) {
+                $_SESSION['error'] = 'Não é possível transferir moedas para si mesmo.';
+            } else {
+                $coluna_moeda = "moedas_" . $tipo_moeda;
+                
+                // Buscar quantidade atual do remetente
+                $stmt = $conn->prepare("SELECT $coluna_moeda FROM personagens WHERE id = :id");
+                $stmt->bindParam(':id', $_SESSION['personagem_id']);
+                $stmt->execute();
+                $remetente = $stmt->fetch();
+                
+                if ($remetente[$coluna_moeda] < $quantidade) {
+                    $_SESSION['error'] = 'Você não possui moedas suficientes para esta transferência.';
+                } else {
+                    // Buscar quantidade atual do destinatário
+                    $stmt = $conn->prepare("SELECT $coluna_moeda FROM personagens WHERE id = :id");
+                    $stmt->bindParam(':id', $destino['id']);
+                    $stmt->execute();
+                    $destinatario = $stmt->fetch();
+                    
+                    // Remover do remetente
+                    $nova_quantidade_remetente = $remetente[$coluna_moeda] - $quantidade;
+                    $stmt = $conn->prepare("UPDATE personagens SET $coluna_moeda = :nova_quantidade WHERE id = :id");
+                    $stmt->bindParam(':nova_quantidade', $nova_quantidade_remetente);
+                    $stmt->bindParam(':id', $_SESSION['personagem_id']);
+                    $stmt->execute();
+                    
+                    // Adicionar ao destinatário
+                    $nova_quantidade_destinatario = $destinatario[$coluna_moeda] + $quantidade;
+                    $stmt = $conn->prepare("UPDATE personagens SET $coluna_moeda = :nova_quantidade WHERE id = :id");
+                    $stmt->bindParam(':nova_quantidade', $nova_quantidade_destinatario);
+                    $stmt->bindParam(':id', $destino['id']);
+                    $stmt->execute();
+                    
+                    // Registrar movimentação (saída)
+                    $stmt = $conn->prepare("INSERT INTO movimentacoes_moedas (personagem_id, personagem_destino, tipo_moeda, quantidade_anterior, quantidade_nova, quantidade_alterada, operacao, motivo, alterado_por) VALUES (:personagem_id, :personagem_destino, :tipo_moeda, :quantidade_anterior, :quantidade_nova, :quantidade_alterada, 'transferencia_saida', :motivo, :alterado_por)");
+                    $stmt->bindParam(':personagem_id', $_SESSION['personagem_id']);
+                    $stmt->bindParam(':personagem_destino', $destino['id']);
+                    $stmt->bindParam(':tipo_moeda', $tipo_moeda);
+                    $stmt->bindParam(':quantidade_anterior', $remetente[$coluna_moeda]);
+                    $stmt->bindParam(':quantidade_nova', $nova_quantidade_remetente);
+                    $stmt->bindParam(':quantidade_alterada', $quantidade);
+                    $stmt->bindParam(':motivo', $motivo);
+                    $stmt->bindParam(':alterado_por', $_SESSION['personagem_id']);
+                    $stmt->execute();
+                    
+                    // Registrar movimentação (entrada)
+                    $stmt = $conn->prepare("INSERT INTO movimentacoes_moedas (personagem_id, personagem_origem, tipo_moeda, quantidade_anterior, quantidade_nova, quantidade_alterada, operacao, motivo, alterado_por) VALUES (:personagem_id, :personagem_origem, :tipo_moeda, :quantidade_anterior, :quantidade_nova, :quantidade_alterada, 'transferencia_entrada', :motivo, :alterado_por)");
+                    $stmt->bindParam(':personagem_id', $destino['id']);
+                    $stmt->bindParam(':personagem_origem', $_SESSION['personagem_id']);
+                    $stmt->bindParam(':tipo_moeda', $tipo_moeda);
+                    $stmt->bindParam(':quantidade_anterior', $destinatario[$coluna_moeda]);
+                    $stmt->bindParam(':quantidade_nova', $nova_quantidade_destinatario);
+                    $stmt->bindParam(':quantidade_alterada', $quantidade);
+                    $stmt->bindParam(':motivo', $motivo);
+                    $stmt->bindParam(':alterado_por', $_SESSION['personagem_id']);
+                    $stmt->execute();
+                    
+                    $_SESSION['success'] = $quantidade . " moedas de " . $tipo_moeda . " transferidas com sucesso para " . $destino['nome_personagem'] . "!";
+                }
+            }
+        } catch (PDOException $e) {
+            $_SESSION['error'] = 'Erro no sistema. Tente novamente.';
+        }
+    }
+    break;
+
+    case 'converter_moedas':
+    $tipo_origem = $_POST['tipo_origem'] ?? '';
+    $tipo_destino = $_POST['tipo_destino'] ?? '';
+    $quantidade = intval($_POST['quantidade'] ?? 0);
+    
+    if (!in_array($tipo_origem, ['cobre', 'prata', 'ouro', 'platina']) || !in_array($tipo_destino, ['cobre', 'prata', 'ouro', 'platina'])) {
+        $_SESSION['error'] = 'Tipos de moeda inválidos.';
+    } elseif ($tipo_origem === $tipo_destino) {
+        $_SESSION['error'] = 'Não é possível converter para o mesmo tipo de moeda.';
+    } elseif ($quantidade <= 0) {
+        $_SESSION['error'] = 'Quantidade deve ser maior que zero.';
+    } else {
+        try {
+            // Valores das moedas em cobre
+            $valores = ['cobre' => 1, 'prata' => 10, 'ouro' => 100, 'platina' => 1000];
+            
+            $valor_origem = $valores[$tipo_origem];
+            $valor_destino = $valores[$tipo_destino];
+            
+            // Verificar se a conversão é válida
+            if ($valor_origem < $valor_destino) {
+                // Convertendo para moeda de maior valor
+                $taxa_conversao = $valor_destino / $valor_origem;
+                if ($quantidade % $taxa_conversao !== 0) {
+                    $_SESSION['error'] = "Para converter $tipo_origem para $tipo_destino, você precisa de múltiplos de $taxa_conversao moedas.";
+                    break;
+                }
+                $quantidade_resultado = $quantidade / $taxa_conversao;
+            } else {
+                // Convertendo para moeda de menor valor
+                $taxa_conversao = $valor_origem / $valor_destino;
+                $quantidade_resultado = $quantidade * $taxa_conversao;
+            }
+            
+            $coluna_origem = "moedas_" . $tipo_origem;
+            $coluna_destino = "moedas_" . $tipo_destino;
+            
+            // Buscar quantidade atual
+            $stmt = $conn->prepare("SELECT $coluna_origem, $coluna_destino FROM personagens WHERE id = :id");
+            $stmt->bindParam(':id', $_SESSION['personagem_id']);
+            $stmt->execute();
+            $personagem = $stmt->fetch();
+            
+            if ($personagem[$coluna_origem] < $quantidade) {
+                $_SESSION['error'] = "Você não possui moedas de $tipo_origem suficientes para esta conversão.";
+            } else {
+                // Realizar conversão
+                $nova_quantidade_origem = $personagem[$coluna_origem] - $quantidade;
+                $nova_quantidade_destino = $personagem[$coluna_destino] + $quantidade_resultado;
+                
+                $stmt = $conn->prepare("UPDATE personagens SET $coluna_origem = :nova_origem, $coluna_destino = :nova_destino WHERE id = :id");
+                $stmt->bindParam(':nova_origem', $nova_quantidade_origem);
+                $stmt->bindParam(':nova_destino', $nova_quantidade_destino);
+                $stmt->bindParam(':id', $_SESSION['personagem_id']);
+                
+                if ($stmt->execute()) {
+                    $_SESSION['success'] = "Conversão realizada! $quantidade moedas de $tipo_origem convertidas para $quantidade_resultado moedas de $tipo_destino.";
+                } else {
+                    $_SESSION['error'] = 'Erro ao converter moedas.';
+                }
+            }
+        } catch (PDOException $e) {
+            $_SESSION['error'] = 'Erro no sistema. Tente novamente.';
+        }
+    }
+    break;
             
         case 'transferir':
             $item_id = intval($_POST['item_id'] ?? 0);
@@ -509,6 +739,48 @@ try {
     $historico_xp = [];
 }
 
+// Buscar moedas do personagem atual
+try {
+    $stmt = $conn->prepare("SELECT moedas_cobre, moedas_prata, moedas_ouro, moedas_platina FROM personagens WHERE id = :id");
+    $stmt->bindParam(':id', $_SESSION['personagem_id']);
+    $stmt->execute();
+    $moedas = $stmt->fetch();
+    
+    $moedas_cobre = $moedas['moedas_cobre'] ?? 0;
+    $moedas_prata = $moedas['moedas_prata'] ?? 0;
+    $moedas_ouro = $moedas['moedas_ouro'] ?? 0;
+    $moedas_platina = $moedas['moedas_platina'] ?? 0;
+    
+    // Calcular valor total em cobre
+    $valor_total_cobre = $moedas_cobre + ($moedas_prata * 10) + ($moedas_ouro * 100) + ($moedas_platina * 1000);
+    
+    // Buscar histórico de movimentações de moedas
+    $stmt = $conn->prepare("
+        SELECT m.*, 
+               p1.nome_personagem as alterado_por_nome,
+               p2.nome_personagem as personagem_origem_nome,
+               p3.nome_personagem as personagem_destino_nome
+        FROM movimentacoes_moedas m
+        LEFT JOIN personagens p1 ON m.alterado_por = p1.id
+        LEFT JOIN personagens p2 ON m.personagem_origem = p2.id
+        LEFT JOIN personagens p3 ON m.personagem_destino = p3.id
+        WHERE m.personagem_id = :personagem_id
+        ORDER BY m.data_movimentacao DESC
+        LIMIT 10
+    ");
+    $stmt->bindParam(':personagem_id', $_SESSION['personagem_id']);
+    $stmt->execute();
+    $historico_moedas = $stmt->fetchAll();
+    
+} catch (PDOException $e) {
+    $moedas_cobre = 0;
+    $moedas_prata = 0;
+    $moedas_ouro = 0;
+    $moedas_platina = 0;
+    $valor_total_cobre = 0;
+    $historico_moedas = [];
+}
+
 // Buscar todos os personagens para o dropdown (apenas para admins)
 $todos_personagens = [];
 if (isAdmin()) {
@@ -596,10 +868,27 @@ if (isAdmin()) {
             <div class="col-md-4 mb-3">
                 <div class="card card-custom">
                     <div class="card-body text-center">
-                        <i class="fas fa-user fa-2x text-success mb-2"></i>
-                        <h5 class="d-none d-md-block">Personagem</h5>
-                        <h6 class="d-md-none">Jogador</h6>
-                        <p class="fs-6"><?php echo htmlspecialchars($_SESSION['nome_personagem']); ?></p>
+                        <i class="fas fa-coins fa-2x text-warning mb-2"></i>
+                        <h5 class="d-none d-md-block">Valor Total</h5>
+                        <h6 class="d-md-none">Moedas</h6>
+                        <p class="fs-6">
+                            <?php if ($moedas_platina > 0): ?>
+                                <span class="badge bg-info me-1"><?php echo $moedas_platina; ?>💎</span>
+                            <?php endif; ?>
+                            <?php if ($moedas_ouro > 0): ?>
+                                <span class="badge me-1" style="background-color: #ffd700; color: #000;"><?php echo $moedas_ouro; ?>🟡</span>
+                            <?php endif; ?>
+                            <?php if ($moedas_prata > 0): ?>
+                                <span class="badge bg-secondary me-1"><?php echo $moedas_prata; ?>⚪</span>
+                            <?php endif; ?>
+                            <?php if ($moedas_cobre > 0): ?>
+                                <span class="badge bg-warning me-1"><?php echo $moedas_cobre; ?>🟤</span>
+                            <?php endif; ?>
+                            <?php if ($valor_total_cobre == 0): ?>
+                                <span class="text-muted">Sem moedas</span>
+                            <?php endif; ?>
+                        </p>
+                        <small class="text-muted"><?php echo number_format($valor_total_cobre); ?> MC total</small>
                     </div>
                 </div>
             </div>
@@ -1459,6 +1748,346 @@ if (isAdmin()) {
                                                 </td>
                                                 <td><?php echo htmlspecialchars($entrada['motivo'] ?: 'Sem descrição'); ?></td>
                                                 <td><?php echo htmlspecialchars($entrada['adicionado_por_nome']); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+        <!-- Sistema de Moedas -->
+        <div class="card card-custom mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-coins me-2"></i>
+                    Sistema de Moedas D&D 3.5
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Resumo das Moedas -->
+                <div class="row mb-4">
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="card border-warning">
+                            <div class="card-body text-center p-2">
+                                <i class="fas fa-circle text-warning fa-2x mb-2" title="Moeda de Cobre"></i>
+                                <h6 class="mb-1">Cobre</h6>
+                                <h4 class="text-warning"><?php echo number_format($moedas_cobre); ?></h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="card border-secondary">
+                            <div class="card-body text-center p-2">
+                                <i class="fas fa-circle text-secondary fa-2x mb-2" title="Moeda de Prata"></i>
+                                <h6 class="mb-1">Prata</h6>
+                                <h4 class="text-secondary"><?php echo number_format($moedas_prata); ?></h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="card border-warning" style="border-color: #ffd700 !important;">
+                            <div class="card-body text-center p-2">
+                                <i class="fas fa-circle fa-2x mb-2" style="color: #ffd700;" title="Moeda de Ouro"></i>
+                                <h6 class="mb-1">Ouro</h6>
+                                <h4 style="color: #ffd700;"><?php echo number_format($moedas_ouro); ?></h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="card border-info">
+                            <div class="card-body text-center p-2">
+                                <i class="fas fa-circle text-info fa-2x mb-2" title="Moeda de Platina"></i>
+                                <h6 class="mb-1">Platina</h6>
+                                <h4 class="text-info"><?php echo number_format($moedas_platina); ?></h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Valor Total -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card bg-dark text-white">
+                            <div class="card-body text-center">
+                                <i class="fas fa-calculator fa-2x mb-2"></i>
+                                <h6>Valor Total (em moedas de cobre)</h6>
+                                <h3><?php echo number_format($valor_total_cobre); ?> MC</h3>
+                                <small class="text-muted">
+                                    Equivale a: <?php echo number_format($valor_total_cobre / 1000, 2); ?> Platina | 
+                                    <?php echo number_format($valor_total_cobre / 100, 2); ?> Ouro | 
+                                    <?php echo number_format($valor_total_cobre / 10, 1); ?> Prata
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ações com Moedas -->
+                <div class="row">
+                    <!-- Transferir Moedas -->
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <button class="btn btn-link text-decoration-none p-0 w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTransferirMoedas">
+                                        <i class="fas fa-exchange-alt me-2"></i>
+                                        Transferir Moedas
+                                        <i class="fas fa-chevron-down ms-2 float-end"></i>
+                                    </button>
+                                </h6>
+                            </div>
+                            <div class="collapse" id="collapseTransferirMoedas">
+                                <div class="card-body">
+                                    <form method="POST" action="">
+                                        <input type="hidden" name="action" value="transferir_moedas">
+                                        
+                                        <div class="mb-3">
+                                            <label for="tipo_moeda_transferir" class="form-label">Tipo de Moeda</label>
+                                            <select class="form-control" id="tipo_moeda_transferir" name="tipo_moeda" required>
+                                                <option value="">Selecione</option>
+                                                <option value="cobre">🟤 Cobre (<?php echo number_format($moedas_cobre); ?>)</option>
+                                                <option value="prata">⚪ Prata (<?php echo number_format($moedas_prata); ?>)</option>
+                                                <option value="ouro">🟡 Ouro (<?php echo number_format($moedas_ouro); ?>)</option>
+                                                <option value="platina">🔵 Platina (<?php echo number_format($moedas_platina); ?>)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="quantidade_transferir" class="form-label">Quantidade</label>
+                                            <input type="number" class="form-control" id="quantidade_transferir" name="quantidade" min="1" required>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="personagem_destino_moedas" class="form-label">Personagem Destino</label>
+                                            <input type="text" class="form-control" id="personagem_destino_moedas" name="personagem_destino" required placeholder="Nome exato do personagem">
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="motivo_transferencia" class="form-label">Motivo (Opcional)</label>
+                                            <input type="text" class="form-control" id="motivo_transferencia" name="motivo" placeholder="Ex: Pagamento de dívida">
+                                        </div>
+                                        
+                                        <div class="d-grid">
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="fas fa-paper-plane me-2"></i>Transferir Moedas
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Converter Moedas -->
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <button class="btn btn-link text-decoration-none p-0 w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#collapseConverterMoedas">
+                                        <i class="fas fa-sync-alt me-2"></i>
+                                        Converter Moedas
+                                        <i class="fas fa-chevron-down ms-2 float-end"></i>
+                                    </button>
+                                </h6>
+                            </div>
+                            <div class="collapse" id="collapseConverterMoedas">
+                                <div class="card-body">
+                                    <form method="POST" action="">
+                                        <input type="hidden" name="action" value="converter_moedas">
+                                        
+                                        <div class="mb-3">
+                                            <label for="tipo_origem" class="form-label">Converter De:</label>
+                                            <select class="form-control" id="tipo_origem" name="tipo_origem" required>
+                                                <option value="">Selecione</option>
+                                                <option value="cobre">🟤 Cobre (<?php echo number_format($moedas_cobre); ?>)</option>
+                                                <option value="prata">⚪ Prata (<?php echo number_format($moedas_prata); ?>)</option>
+                                                <option value="ouro">🟡 Ouro (<?php echo number_format($moedas_ouro); ?>)</option>
+                                                <option value="platina">🔵 Platina (<?php echo number_format($moedas_platina); ?>)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="quantidade_converter" class="form-label">Quantidade</label>
+                                            <input type="number" class="form-control" id="quantidade_converter" name="quantidade" min="1" required>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="tipo_destino" class="form-label">Converter Para:</label>
+                                            <select class="form-control" id="tipo_destino" name="tipo_destino" required>
+                                                <option value="">Selecione</option>
+                                                <option value="cobre">🟤 Cobre</option>
+                                                <option value="prata">⚪ Prata</option>
+                                                <option value="ouro">🟡 Ouro</option>
+                                                <option value="platina">🔵 Platina</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="alert alert-info small">
+                                            <strong>Taxas de conversão:</strong><br>
+                                            1 Prata = 10 Cobre | 1 Ouro = 10 Prata | 1 Platina = 10 Ouro
+                                        </div>
+                                        
+                                        <div class="d-grid">
+                                            <button type="submit" class="btn btn-success">
+                                                <i class="fas fa-sync-alt me-2"></i>Converter Moedas
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Painel Admin para Ajustar Moedas -->
+                <?php if (isAdmin()): ?>
+                    <div class="card mt-4" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <button class="btn btn-link text-decoration-none p-0 w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAjustarMoedas">
+                                    <i class="fas fa-tools me-2"></i>
+                                    Ajustar Moedas (Apenas Administradores)
+                                    <i class="fas fa-chevron-down ms-2 float-end"></i>
+                                </button>
+                            </h6>
+                        </div>
+                        <div class="collapse" id="collapseAjustarMoedas">
+                            <div class="card-body">
+                                <form method="POST" action="">
+                                    <input type="hidden" name="action" value="ajustar_moedas">
+                                    
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label for="personagem_alvo_moedas" class="form-label">Personagem</label>
+                                            <select class="form-control" id="personagem_alvo_moedas" name="personagem_alvo" required>
+                                                <option value="">Selecione um personagem</option>
+                                                <?php foreach ($todos_personagens as $p): ?>
+                                                    <option value="<?php echo $p['id']; ?>">
+                                                        <?php echo htmlspecialchars($p['nome_personagem']); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="col-md-6">
+                                            <label for="tipo_moeda_admin" class="form-label">Tipo de Moeda</label>
+                                            <select class="form-control" id="tipo_moeda_admin" name="tipo_moeda" required>
+                                                <option value="">Selecione</option>
+                                                <option value="cobre">🟤 Cobre</option>
+                                                <option value="prata">⚪ Prata</option>
+                                                <option value="ouro">🟡 Ouro</option>
+                                                <option value="platina">🔵 Platina</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="col-md-4">
+                                            <label for="operacao_moedas" class="form-label">Operação</label>
+                                            <select class="form-control" id="operacao_moedas" name="operacao" required>
+                                                <option value="">Selecione</option>
+                                                <option value="adicionar">➕ Adicionar</option>
+                                                <option value="remover">➖ Remover</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="col-md-4">
+                                            <label for="quantidade_admin" class="form-label">Quantidade</label>
+                                            <input type="number" class="form-control" id="quantidade_admin" name="quantidade" min="1" required>
+                                        </div>
+                                        
+                                        <div class="col-md-4">
+                                            <label for="motivo_admin" class="form-label">Motivo</label>
+                                            <input type="text" class="form-control" id="motivo_admin" name="motivo" placeholder="Ex: Recompensa da quest">
+                                        </div>
+                                        
+                                        <div class="col-12">
+                                            <div class="d-grid">
+                                                <button type="submit" class="btn btn-warning">
+                                                    <i class="fas fa-coins me-2"></i>Ajustar Moedas
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Histórico de Movimentações -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-history me-2"></i>
+                            Histórico de Movimentações
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <?php if (empty($historico_moedas)): ?>
+                            <div class="text-center py-3">
+                                <i class="fas fa-coins fa-2x text-muted mb-2"></i>
+                                <p class="text-muted">Nenhuma movimentação de moedas ainda</p>
+                            </div>
+                        <?php else: ?>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Data</th>
+                                            <th>Operação</th>
+                                            <th>Moeda</th>
+                                            <th>Quantidade</th>
+                                            <th>Saldo</th>
+                                            <th>Detalhes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($historico_moedas as $mov): ?>
+                                            <tr>
+                                                <td><?php echo date('d/m/Y H:i', strtotime($mov['data_movimentacao'])); ?></td>
+                                                <td>
+                                                    <?php
+                                                    $operacao_icons = [
+                                                        'adicionar' => '<span class="badge bg-success"><i class="fas fa-plus"></i> Adição</span>',
+                                                        'remover' => '<span class="badge bg-danger"><i class="fas fa-minus"></i> Remoção</span>',
+                                                        'transferencia_saida' => '<span class="badge bg-warning"><i class="fas fa-arrow-up"></i> Enviou</span>',
+                                                        'transferencia_entrada' => '<span class="badge bg-info"><i class="fas fa-arrow-down"></i> Recebeu</span>'
+                                                    ];
+                                                    echo $operacao_icons[$mov['operacao']] ?? $mov['operacao'];
+                                                    ?>
+                                                </td>
+                                                <td>
+                                                    <?php
+                                                    $moeda_icons = [
+                                                        'cobre' => '🟤',
+                                                        'prata' => '⚪',
+                                                        'ouro' => '🟡',
+                                                        'platina' => '🔵'
+                                                    ];
+                                                    echo $moeda_icons[$mov['tipo_moeda']] . ' ' . ucfirst($mov['tipo_moeda']);
+                                                    ?>
+                                                </td>
+                                                <td>
+                                                    <strong><?php echo number_format($mov['quantidade_alterada']); ?></strong>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">
+                                                        <?php echo number_format($mov['quantidade_anterior']); ?> → 
+                                                        <strong><?php echo number_format($mov['quantidade_nova']); ?></strong>
+                                                    </small>
+                                                </td>
+                                                <td>
+                                                    <?php if (!empty($mov['motivo'])): ?>
+                                                        <small><?php echo htmlspecialchars($mov['motivo']); ?></small><br>
+                                                    <?php endif; ?>
+                                                    
+                                                    <?php if ($mov['operacao'] === 'transferencia_saida' && $mov['personagem_destino_nome']): ?>
+                                                        <small class="text-muted">Para: <?php echo htmlspecialchars($mov['personagem_destino_nome']); ?></small>
+                                                    <?php elseif ($mov['operacao'] === 'transferencia_entrada' && $mov['personagem_origem_nome']): ?>
+                                                        <small class="text-muted">De: <?php echo htmlspecialchars($mov['personagem_origem_nome']); ?></small>
+                                                    <?php elseif (in_array($mov['operacao'], ['adicionar', 'remover']) && $mov['alterado_por_nome']): ?>
+                                                        <small class="text-muted">Por: <?php echo htmlspecialchars($mov['alterado_por_nome']); ?></small>
+                                                    <?php endif; ?>
+                                                </td>
                                             </tr>
                                         <?php endforeach; ?>
                                     </tbody>

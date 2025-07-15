@@ -18,7 +18,7 @@ $admin_personagens = [
    'Admin',
    'GameMaster',
    'Mestre',
-   'teste'
+   'Thiago'
    // Adicione mais nomes conforme necessário
 ];
 
